@@ -62,7 +62,7 @@ class User extends Authenticatable
 
     public function history():HasMany
     {
-        return $this->hasMany(Histories::class);
+        return $this->hasMany(Histories::class, 'user_id');
     }
     
     public function search($query)
@@ -70,5 +70,15 @@ class User extends Authenticatable
         return empty($query) ? $this->query() : $this->query()->where('firstname', 'like', "%{$query}%")
         ->orWhere('lastname', 'like', "%{$query}%")
         ->orWhere('student_no', 'like', "%{$query}%");
+    }
+
+    public function downloadRequests()
+    {
+        return $this->hasMany(DtrDownloadRequest::class, 'user_id');
+    }
+
+    public function notifications()
+    {
+        return $this->hasMany(Notification::class,'user_id');
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\DtrDownloadRequest;
 use App\Models\Histories;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -59,7 +60,7 @@ class UserController extends Controller
 
         // Validate the type of time check
         if (!in_array($request->type, ['time_in', 'time_out'])) {
-            return back()->with('error', 'Invalid time check type.');
+            return response()->json(['success' => false, 'message' => 'Invalid time check type']);
         }
 
         // it will be depends if time in or time out
@@ -80,7 +81,7 @@ class UserController extends Controller
         try {
             $sendShiftNotification = $emailController->EmailShiftNotification($userData, $timeCheck);
         } catch (\Exception $e) {
-            return back()->with('error', 'Failed to send shift notification.');
+            return response()->json(['success' => false, 'message' => $e->getMessage()]);
         }
 
         // return the success text
@@ -280,7 +281,6 @@ class UserController extends Controller
             return back()->with('invalid', 'The user is invalid!');
         }
 
-
         $histories = Histories::all();
         $users = User::get();
 
@@ -309,7 +309,7 @@ class UserController extends Controller
         ]);
     }
 
-    public function showUserDashboard(RankingController $rankingController)
+    public function showUserDashboard(RankingController $rankingController, DtrDownloadRequestController $dtrDownloadRequestController)
     {
         $users = Auth::user();
 
@@ -339,6 +339,9 @@ class UserController extends Controller
             //ranking controller
             $userRanking = $rankingController->getRankings();
 
+            //get the download request list
+            $downloadRequest = $dtrDownloadRequestController->UserdownloadRequestStatusDashboard();
+
             return view('users.dashboard', [
                 'user' => $users,
                 'userTimeStarted' => Carbon::parse($users->starting_date)->format('F j, Y'),
@@ -348,6 +351,7 @@ class UserController extends Controller
                 'totalRegister' => $totalRegister,
                 'histories' => $histories,
                 'array_daily' => $dailyAttendance,
+                'downloadRequest' => $downloadRequest,
             ]);
         } catch (\Exception $ex) {
             return back()->with('invalid', 'Invalid user!');
@@ -406,12 +410,9 @@ class UserController extends Controller
 
     }
 
-    public function showUserDetails($id, RankingController $rankingController, HistoryController $historyController, DtrSummaryController $dtrSummaryController)
+    public function showUserDetails($id, DtrSummaryController $dtrSummaryController)
     {
         $user = User::find($id);
-
-        $ranking = $rankingController->getRankings();
-        $array_daily = $historyController->AllUserDailyAttendance();
 
         $histories = $user->history()->latest()->get()->map(function ($history) {
             return [
@@ -437,8 +438,6 @@ class UserController extends Controller
 
         return view('admin.users.show', [
             'user' => $user,
-            'ranking' => $ranking,
-            'array_daily' => $array_daily,
             'histories' => $histories,
             //'yearlyTotals' => $yearlyTotals,
         ]);
@@ -479,4 +478,46 @@ class UserController extends Controller
         }
         return $this->showUserDashboard(new RankingController());
     }
+
+    public function showRequest(DtrDownloadRequestController $dtrDownloadRequestController)
+    {
+
+        //get the dtr request list
+        $downloadRequest = $dtrDownloadRequestController->UserdownloadRequestPage();
+
+        return view('users.request', ['downloadRequest' => $downloadRequest]);
+    }
+
+    public function showAdminApprovals()
+    {
+        $dtrDownloadRequest = DtrDownloadRequest::with('users')->get();
+
+        $dtrDownloadRequest = collect($dtrDownloadRequest)->map(function ($user){
+            return [
+                'id' => $user->id,
+                'name' => $user->users->firstname . ' ' . substr($user->users->firstname, 0, 1) . '. ' . $user->users->lastname,
+                'title' => 'Request for DTR Approval',
+                'month' => $user->month,
+                'year' => $user->year,
+                'user_id' => $user->user_id,
+                'status' => $user->status,
+                'date_requested' => Carbon::parse($user->created_at)->format('Y-m-d'),
+            ];
+        })->sortByDesc('date_requested');
+        
+        return view('admin.approvals.index', [
+            'approvals' => $dtrDownloadRequest,
+        ]);
+    }
+
+    public function showEditUsers($id)
+    {
+        $user = User::where('id', $id)->first();
+
+        return view('admin.users.edit', [
+            'user' => $user,
+        ]);
+    }
+
+
 }

@@ -7,6 +7,7 @@ use App\Models\User;
 use Carbon\Carbon;
 // use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
@@ -22,7 +23,7 @@ class DatabaseSeeder extends Seeder
             'lastname' => 'admin',
             'middlename' => 'admin',
             'email' => 'admin@email.com',
-            'password' => 'password',
+            'password' => Hash::make('password'),
             'role' => 'admin',
             'phone' => '09123456789',
             'gender' => 'male',
@@ -41,7 +42,7 @@ class DatabaseSeeder extends Seeder
             'lastname' => 'user',
             'middlename' => 'user',
             'email' => 'user@email.com',
-            'password' => 'password',
+            'password' => Hash::make('password'),
             'role' => 'user',
             'phone' => '09123456782',
             'gender' => 'male',

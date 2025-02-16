@@ -121,6 +121,11 @@
         </div>
     </div>
 
+    @php
+        $pagination = json_decode($pagination, true);
+        $records = json_decode($records, true);
+    @endphp
+
     <div class="header" style="margin-top: 70px;">
         <h4>OJT Daily Time Record</h4>
         <h1>{{ $pagination['currentMonth']['name'] }}</h1>

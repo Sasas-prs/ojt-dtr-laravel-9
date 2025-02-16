@@ -13,6 +13,17 @@ use Illuminate\Support\Facades\Broadcast;
 |
 */
 
-Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
-    return (int) $user->id === (int) $id;
+Broadcast::channel('private-notifications.{userId}', function ($user, $userId) {
+    return true;
+});
+
+Broadcast::channel('presence-chat.{chatId}', function ($user, $chatId) {
+    return [
+        'id' => $user->id,
+        'name' => $user->name,
+    ]; // Returns user info to other users in the chat
+});
+
+Broadcast::channel('private.chat.{id}', function ($user, $chatId) {
+    return true;
 });

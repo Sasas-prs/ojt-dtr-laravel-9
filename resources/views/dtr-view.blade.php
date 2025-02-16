@@ -1,68 +1,7 @@
 <x-main-layout>
-    <x-modal.dtr-summary id="dtr-summary-modal" :yearlyTotals="$yearlyTotals" />
-
     <main class="w-full">
         {{-- <x-modal.dtr-summary id="dtr-summary-modal" /> --}}
         <div class="flex flex-col gap-5 w-full items-center justify-center pb-5">
-            <div
-                class="w-full grid xl:!grid-cols-3 text-nowrap grid-cols-2 gap-5 bg-white p-3 border border-gray-200 shadow-lg sticky top-5 z-30 rounded-full max-w-screen-xl mx-auto">
-
-                <section class="xl:col-span-1 xl:flex justify-start items-center hidden w-full">
-                    <form action="{{ route('users.dtr.post') }}" method="POST" class="inline">
-                        @csrf
-                        @method('POST')
-                        <input type="month" name="searchDate" id="searchDate"
-                            class="px-5 py-2 rounded-full cursor-pointer border border-gray-200 text-sm"
-                            value="{{ \Carbon\Carbon::parse($pagination['currentMonth']['name'])->format('Y-m') }}"
-                            onchange="this.form.submit()">
-                    </form>
-                </section>
-
-                <section class="flex items-center gap-3 col-span-1 xl:!justify-center justify-start w-full">
-                    <form action="{{ route('users.dtr.post') }}" method="POST" class="inline">
-                        @csrf
-                        @method('POST')
-                        <input type="hidden" name="month" value="{{ $pagination['previousMonth']['month'] }}">
-                        <input type="hidden" name="year" value="{{ $pagination['previousMonth']['year'] }}">
-                        <button type="submit"
-                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center text-sm">
-                            <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M15 19l-7-7 7-7" />
-                            </svg>
-                            <span
-                                class="sm:block hidden">{{ \Carbon\Carbon::parse($pagination['previousMonth']['name'])->format('M Y') }}</span>
-                        </button>
-                    </form>
-                    <form action="{{ route('users.dtr.post') }}" method="POST" class="inline">
-                        @csrf
-                        @method('POST')
-                        <input type="hidden" name="month" value="{{ $pagination['nextMonth']['month'] }}">
-                        <input type="hidden" name="year" value="{{ $pagination['nextMonth']['year'] }}">
-                        <button type="submit"
-                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center text-sm">
-                            <span
-                                class="sm:block hidden">{{ \Carbon\Carbon::parse($pagination['nextMonth']['name'])->format('M Y') }}</span>
-                            <svg class="w-5 h-5 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M9 5l7 7-7 7" />
-                            </svg>
-                        </button>
-                    </form>
-                </section>
-
-                <section class="flex items-center gap-3 col-span-1 justify-end w-full h-auto">
-                    <!-- Fix alignment and padding for DTR Summary -->
-                    <x-button tertiary label="DTR Summary" openModal="dtr-summary-modal"
-                        className="text-xs lg:px-8 px-4 modal-button" />
-                
-                    <!-- Request PDF Button (With onClick Event) -->
-                    <x-button primary label="Request a PDF" showLabel="{{ true }}"
-                        leftIcon="ph--hand-deposit" className="text-xs lg:px-8 px-4"
-                        onClick="requestPDF()" />
-                </section>
-            </div>
-
             <div class="xl:w-[75%] lg:w-[85%] md:w-[95%] w-[100%] h-auto mt-8">
                 <div
                     class="w-auto h-auto border bg-white border-gray-100 shadow-md resize-none p-8 space-y-5 select-none">
@@ -90,9 +29,6 @@
                                     Hours</span></p>
                         </div>
                     </section>
-
-                    <input type="text" name='monthValue' class="hidden" value="{{$pagination['currentMonth']['month']}}" />
-                    <input type="text" name='yearValue' class="hidden" value="{{$pagination['currentMonth']['year']}}" />
 
                     <section class="h-auto w-full border border-gray-200 overflow-x-auto">
                         <table class="w-full border-collapse border border-gray-300">
@@ -167,40 +103,7 @@
 
                 </div>
             </div>
+
         </div>
     </main>
 </x-main-layout>
-<script>
-
-    let month = document.querySelector("[name='monthValue']").value;
-    let year = document.querySelector("[name='yearValue']").value;
-
-    console.log(month, year);
-
-    function requestPDF() {
-
-        var user_id = "{{ auth()->id() }}"; // Get logged-in user's ID
-
-        fetch("{{ route('user.send.request.download.notification') }}", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "X-CSRF-TOKEN": "{{ csrf_token() }}" // CSRF protection
-            },
-            body: JSON.stringify({
-                to_user_id: 1,
-                month: month,
-                year: year,
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert("PDF request successful!");
-            } else {
-                alert("Failed to generate PDF.");
-            }
-        })
-        .catch(error => console.error("Error:", error));
-    }
-</script>
