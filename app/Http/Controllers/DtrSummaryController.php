@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\DtrDownloadRequest;
 use App\Models\Histories;
 use App\Models\User;
 use Carbon\Carbon;
@@ -252,7 +253,7 @@ class DtrSummaryController extends Controller
                 ]);
     }
 
-    public function showUserDtrSummary(Request $request)
+    public function showUserDtrSummary()
     {
         $user = Auth::user();
         $firstRecord = Histories::where('user_id', $user->id)
@@ -338,14 +339,16 @@ class DtrSummaryController extends Controller
             krsort($yearData['months']);
         }
 
-        return view('users.dtr-summary', [
-            'user' => $user,
-            'yearlyTotals' => $yearlyTotals
-        ]);
+        return ['yearlyTotals' => $yearlyTotals];
+
+        // return view('users.dtr-summary', [
+        //     'user' => $user,
+        //     'yearlyTotals' => $yearlyTotals
+        // ]);
     }
 
     //get function
-    public function showUserDtr(Request $request)
+    public function showUserDtr(Request $request, DtrSummaryController $dtrSummaryController)
     {
 
         $currentDate = Carbon::now();
@@ -449,8 +452,350 @@ class DtrSummaryController extends Controller
             ];
         }
 
+        //I remove the user becausue its just redundant to Auth::user();
+        $yearlyTotals = $dtrSummaryController->showUserDtrSummary()['yearlyTotals'];
+
         return view('users.dtr', [
             'user' => Auth::user(),
+            'yearlyTotals' => $yearlyTotals,
+            'records' => $records,
+            'totalHoursPerMonth' => $totalHoursPerMonth,
+            'selectedMonth' => $selectedMonth,
+            'selectedYear' => $selectedYear,
+            'pagination' => [
+                'currentMonth' => [
+                    'name' => $selectedDate->format('F Y'),
+                    'month' => $selectedMonth,
+                    'year' => $selectedYear
+                ],
+                'previousMonth' => [
+                    'name' => $previousMonth->format('F Y'),
+                    'month' => $previousMonth->month,
+                    'year' => $previousMonth->year,
+                    'url' => route('users.dtr', ['month' => $previousMonth->month, 'year' => $previousMonth->year])
+                ],
+                'nextMonth' => [
+                    'name' => $nextMonth->format('F Y'),
+                    'month' => $nextMonth->month,
+                    'year' => $nextMonth->year,
+                    'url' => route('users.dtr', ['month' => $nextMonth->month, 'year' => $nextMonth->year])
+                ]
+            ]
+        ]);
+    }
+
+    public function showUserRequestedDtr($id, Request $request, DtrSummaryController $dtrSummaryController)
+    {
+        $user = optional(DtrDownloadRequest::with('users')->first())->users;
+        if (Auth::user()->role === 'admin') {
+            return redirect()->route('admin.users.dtr.view', [
+                'id' => $id,
+                'month' => $request->month ?? Carbon::now()->month, // Fallback to current month if null
+                'year' => $request->year ?? Carbon::now()->year,    // Fallback to current year if null
+                'type' => 'view',
+            ]);
+        }
+        if(Auth::user()->role != 'admin')
+        {
+            if(Auth::id() != $user->id)
+            {
+                return back()->with('invalid', 'You do not have permission to see this!');
+            }
+        }
+
+        //get the user based on the id sent
+        $currentDate = Carbon::now();
+        $selectedMonth = $request->input('month', $currentDate->month);
+        $selectedYear = $request->input('year', $currentDate->year);
+
+        $selectedDate = Carbon::createFromDate($selectedYear, $selectedMonth, 1);
+        $previousMonth = (clone $selectedDate)->subMonth();
+        $nextMonth = (clone $selectedDate)->addMonth();
+
+        // Get all logs for the month
+        $userLogs = Histories::where('user_id', $user->id)
+            ->whereYear('datetime', $selectedYear)
+            ->whereMonth('datetime', $selectedMonth)
+            ->orderBy('datetime', 'asc')
+            ->get();
+            
+            $logsByDate = $userLogs->groupBy(function ($log) {
+            return Carbon::parse($log->datetime)->format('Y-m-d');
+        });
+
+        $daysInMonth = Carbon::createFromDate($request->year, $request->month, 1)->daysInMonth;
+
+        $groupedData = [];
+        $totalHours = 0;
+
+        for ($day = 1; $day <= $daysInMonth; $day++) {
+            $dateKey = Carbon::createFromDate($selectedYear, $selectedMonth, $day)->format('Y-m-d');
+            //echo "\nProcessing date: $dateKey\n";
+            
+            if (isset($logsByDate[$dateKey])) {
+                $logs = $logsByDate[$dateKey];
+                //echo "Found " . $logs->count() . " logs for this date\n";
+                
+                // Get first time in and last time out for the day
+                $timeInLogs = $logs->where('description', 'time in')->sortBy('datetime');
+                $timeOutLogs = $logs->where('description', 'time out')->sortByDesc('datetime');
+
+                $firstTimeIn = $timeInLogs->first();
+                $lastTimeOut = $timeOutLogs->first(); // This gets the last time out since we sorted desc
+
+                if ($firstTimeIn && $lastTimeOut) {
+                    $timeIn = Carbon::parse($firstTimeIn->datetime);
+                    $timeOut = Carbon::parse($lastTimeOut->datetime);
+                    
+                    // Only calculate hours if time out is after time in
+                    if ($timeOut->gt($timeIn)) {
+                        $hoursWorked = floor($timeIn->diffInHours($timeOut));
+
+                        $groupedData[$dateKey] = [
+                            'time_in' => $timeIn->format('h:i A'),
+                            'time_out' => $timeOut->format('h:i A'),
+                            'hours_worked' => $hoursWorked,
+                        ];
+
+                        //echo "Valid time in/out found - First In: {$timeIn->format('h:i A')}, Last Out: {$timeOut->format('h:i A')}, Hours: $hoursWorked\n";
+                    } else {
+                        $groupedData[$dateKey] = [
+                            'time_in' => $timeIn->format('h:i A'),
+                            'time_out' => $timeOut->format('h:i A'),
+                            'hours_worked' => '—',
+                        ];
+                        //echo "Invalid time range - Time out is before time in\n";
+                    }
+                } else {
+                    $groupedData[$dateKey] = [
+                        'time_in' => $firstTimeIn ? Carbon::parse($firstTimeIn->datetime)->format('h:i A') : '—',
+                        'time_out' => $lastTimeOut ? Carbon::parse($lastTimeOut->datetime)->format('h:i A') : '—',
+                        'hours_worked' => '—',
+                    ];
+                    //echo "Incomplete logs - Missing " . (!$firstTimeIn ? "time in" : "time out") . "\n";
+                }
+            } else {
+                $groupedData[$dateKey] = [
+                    'time_in' => '—',
+                    'time_out' => '—',
+                    'hours_worked' => '—',
+                ];
+                //echo "No logs found for this date\n";
+            }
+        }
+        
+        $totalHoursPerMonth = 0;
+        foreach ($groupedData as $key => $value) {
+            if ($value['hours_worked'] !== '—') {
+                $totalHoursPerMonth += $value['hours_worked'];
+                //echo "Adding hours for $key: {$value['hours_worked']}\n";
+            }
+        }
+
+        //echo "\nFinal total hours for month: $totalHoursPerMonth\n";
+
+        $records = [];
+        foreach ($groupedData as $date => $data) {
+            $records[] = [
+                'date' => $date,
+                'user' => $user,
+                'time_in' => $data['time_in'],
+                'time_out' => $data['time_out'],
+                'hours_worked' => $data['hours_worked']
+            ];
+        }
+
+        //I remove the user becausue its just redundant to Auth::user();
+        $yearlyTotals = $dtrSummaryController->showUserDtrSummary()['yearlyTotals'];
+        
+        
+        if ($request->type === 'download') {
+            // Check if the request is approved
+            $dtrRequest = DtrDownloadRequest::where('id', $id)->first();
+            if (!$dtrRequest || $dtrRequest->status !== 'approved') {
+                return back()->with('invalid', 'This document is not yet approved!');
+            }
+            
+            // Pass data to the view, which will submit a POST request
+            return view('download-dtr', [
+                'user' => $user,
+                'type' => 'verified.download',
+                'yearlyTotals' => $yearlyTotals,
+                'records' => $records,
+                'totalHoursPerMonth' => $totalHoursPerMonth,
+                'selectedMonth' => $selectedMonth,
+                'selectedYear' => $selectedYear,
+                'pagination' => [
+                    'currentMonth' => [
+                        'name' => $selectedDate->format('F Y'),
+                        'month' => $selectedMonth,
+                        'year' => $selectedYear
+                    ],
+                    'previousMonth' => [
+                        'name' => $previousMonth->format('F Y'),
+                        'month' => $previousMonth->month,
+                        'year' => $previousMonth->year,
+                        'url' => route('users.dtr', ['month' => $previousMonth->month, 'year' => $previousMonth->year])
+                    ],
+                    'nextMonth' => [
+                        'name' => $nextMonth->format('F Y'),
+                        'month' => $nextMonth->month,
+                        'year' => $nextMonth->year,
+                        'url' => route('users.dtr', ['month' => $nextMonth->month, 'year' => $nextMonth->year])
+                    ]
+                ]
+            ]);
+        }
+        
+
+        return view('dtr-view', [
+            'user' => $user,
+            'yearlyTotals' => $yearlyTotals,
+            'records' => $records,
+            'totalHoursPerMonth' => $totalHoursPerMonth,
+            'selectedMonth' => $selectedMonth,
+            'selectedYear' => $selectedYear,
+            'pagination' => [
+                'currentMonth' => [
+                    'name' => $selectedDate->format('F Y'),
+                    'month' => $selectedMonth,
+                    'year' => $selectedYear
+                ],
+                'previousMonth' => [
+                    'name' => $previousMonth->format('F Y'),
+                    'month' => $previousMonth->month,
+                    'year' => $previousMonth->year,
+                    'url' => route('users.dtr', ['month' => $previousMonth->month, 'year' => $previousMonth->year])
+                ],
+                'nextMonth' => [
+                    'name' => $nextMonth->format('F Y'),
+                    'month' => $nextMonth->month,
+                    'year' => $nextMonth->year,
+                    'url' => route('users.dtr', ['month' => $nextMonth->month, 'year' => $nextMonth->year])
+                ]
+            ]
+        ]);
+    }
+
+    public function showAdminUserRequestedDtr($id, $month, $year, Request $request, DtrSummaryController $dtrSummaryController)
+    {
+        $user = optional(DtrDownloadRequest::with('users')->first())->users;
+        if(Auth::user()->role != 'admin')
+        {
+            if(Auth::id() != $user->id)
+            {
+                return back()->with('invalid', 'You do not have permission to see this!');
+            }
+        }
+
+        //get the user based on the id sent
+        $currentDate = Carbon::now();
+        $selectedMonth = $month ?? $currentDate->month;
+        $selectedYear = $year ?? $currentDate->year;
+
+        $selectedDate = Carbon::createFromDate($selectedYear, $selectedMonth, 1);
+        $previousMonth = (clone $selectedDate)->subMonth();
+        $nextMonth = (clone $selectedDate)->addMonth();
+
+        // Get all logs for the month
+        $userLogs = Histories::where('user_id', $user->id)
+            ->whereYear('datetime', $selectedYear)
+            ->whereMonth('datetime', $selectedMonth)
+            ->orderBy('datetime', 'asc')
+            ->get();
+
+        $logsByDate = $userLogs->groupBy(function ($log) {
+            return Carbon::parse($log->datetime)->format('Y-m-d');
+        });
+
+        $daysInMonth = Carbon::createFromDate($request->year, $request->month, 1)->daysInMonth;
+
+        $groupedData = [];
+        $totalHours = 0;
+
+        for ($day = 1; $day <= $daysInMonth; $day++) {
+            $dateKey = Carbon::createFromDate($selectedYear, $selectedMonth, $day)->format('Y-m-d');
+            //echo "\nProcessing date: $dateKey\n";
+
+            if (isset($logsByDate[$dateKey])) {
+                $logs = $logsByDate[$dateKey];
+                //echo "Found " . $logs->count() . " logs for this date\n";
+
+                // Get first time in and last time out for the day
+                $timeInLogs = $logs->where('description', 'time in')->sortBy('datetime');
+                $timeOutLogs = $logs->where('description', 'time out')->sortByDesc('datetime');
+
+                $firstTimeIn = $timeInLogs->first();
+                $lastTimeOut = $timeOutLogs->first(); // This gets the last time out since we sorted desc
+
+                if ($firstTimeIn && $lastTimeOut) {
+                    $timeIn = Carbon::parse($firstTimeIn->datetime);
+                    $timeOut = Carbon::parse($lastTimeOut->datetime);
+
+                    // Only calculate hours if time out is after time in
+                    if ($timeOut->gt($timeIn)) {
+                        $hoursWorked = floor($timeIn->diffInHours($timeOut));
+
+                        $groupedData[$dateKey] = [
+                            'time_in' => $timeIn->format('h:i A'),
+                            'time_out' => $timeOut->format('h:i A'),
+                            'hours_worked' => $hoursWorked,
+                        ];
+
+                        //echo "Valid time in/out found - First In: {$timeIn->format('h:i A')}, Last Out: {$timeOut->format('h:i A')}, Hours: $hoursWorked\n";
+                    } else {
+                        $groupedData[$dateKey] = [
+                            'time_in' => $timeIn->format('h:i A'),
+                            'time_out' => $timeOut->format('h:i A'),
+                            'hours_worked' => '—',
+                        ];
+                        //echo "Invalid time range - Time out is before time in\n";
+                    }
+                } else {
+                    $groupedData[$dateKey] = [
+                        'time_in' => $firstTimeIn ? Carbon::parse($firstTimeIn->datetime)->format('h:i A') : '—',
+                        'time_out' => $lastTimeOut ? Carbon::parse($lastTimeOut->datetime)->format('h:i A') : '—',
+                        'hours_worked' => '—',
+                    ];
+                    //echo "Incomplete logs - Missing " . (!$firstTimeIn ? "time in" : "time out") . "\n";
+                }
+            } else {
+                $groupedData[$dateKey] = [
+                    'time_in' => '—',
+                    'time_out' => '—',
+                    'hours_worked' => '—',
+                ];
+                //echo "No logs found for this date\n";
+            }
+        }
+
+        $totalHoursPerMonth = 0;
+        foreach ($groupedData as $key => $value) {
+            if ($value['hours_worked'] !== '—') {
+                $totalHoursPerMonth += $value['hours_worked'];
+                //echo "Adding hours for $key: {$value['hours_worked']}\n";
+            }
+        }
+
+        //echo "\nFinal total hours for month: $totalHoursPerMonth\n";
+
+        $records = [];
+        foreach ($groupedData as $date => $data) {
+            $records[] = [
+                'date' => $date,
+                'user' => $user,
+                'time_in' => $data['time_in'],
+                'time_out' => $data['time_out'],
+                'hours_worked' => $data['hours_worked']
+            ];
+        }
+
+        //I remove the user becausue its just redundant to Auth::user();
+        $yearlyTotals = $dtrSummaryController->showUserDtrSummary()['yearlyTotals'];
+
+        return view('dtr-view', [
+            'user' => $user,
+            'yearlyTotals' => $yearlyTotals,
             'records' => $records,
             'totalHoursPerMonth' => $totalHoursPerMonth,
             'selectedMonth' => $selectedMonth,
